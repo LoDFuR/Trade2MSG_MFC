@@ -1,0 +1,183 @@
+#define CLIENT_NUMBER 2
+..........................
+
+DWORD TotalSockets = 0; // Всего сокетов
+DWORD RecvSocket = 0;
+DWORD SendSocket = 0;
+
+.....................248
+if (FD_ISSET(ListenSocket, &ReadSet) && TotalSockets <= CLIENT_NUMBER)
+
+.........................266
+// Добавление сокет в массив SocketArray
+				if (CreateSocketInformation(AcceptSocket, pLB)
+					== FALSE)
+					return 1;
+
+				char podh[256] = "1";
+				char lish[256] = "0";
+				int ret;
+
+				if (TotalSockets > CLIENT_NUMBER)
+				{
+					ret = send(AcceptSocket, lish, strlen(lish), 0);
+				}
+				else
+				{
+					ret = send(AcceptSocket, podh, strlen(podh), 0);
+				}
+			}
+			else
+			{
+				if (WSAGetLastError() != WSAEWOULDBLOCK)
+				{
+					sprintf_s(Str, sizeof(Str),
+						"accept() failed with error %d",
+						WSAGetLastError());
+					pLB->AddString(Str);
+					return 1;
+				}
+			}
+		} // while
+
+		if (TotalSockets >= CLIENT_NUMBER)
+		{
+			LPSOCKET_INFORMATION SocketInfo1 = SocketArray[0];
+			LPSOCKET_INFORMATION SocketInfo2 = SocketArray[1];
+			char string[256] = "";
+
+			strcat_s(string, SocketInfo1->Buffer);
+			strcat_s(string, SocketInfo2->Buffer);
+
+			for (i = 0; Total > 0 && i < TotalSockets; i++)
+			{
+				LPSOCKET_INFORMATION SocketInfo = SocketArray[i];
+
+				// Если сокет попадает в множество ReadSet, 
+				// выполняем чтение данных.
+
+				if (FD_ISSET(SocketInfo->Socket, &ReadSet))
+				{
+					Total--;
+
+					SocketInfo->DataBuf.buf = SocketInfo->Buffer;
+					SocketInfo->DataBuf.len = DATA_BUFSIZE;
+
+					Flags = 0;
+					if (WSARecv(SocketInfo->Socket,
+						&(SocketInfo->DataBuf), 1, &RecvBytes,
+						&Flags, NULL, NULL) == SOCKET_ERROR)
+					{
+						if (WSAGetLastError() != WSAEWOULDBLOCK)
+						{
+							sprintf_s(Str, sizeof(Str),
+								"WSARecv() failed with error %d",
+								WSAGetLastError());
+							pLB->AddString(Str);
+
+							FreeSocketInformation(i, pLB);
+						}
+						continue;
+					}
+
+					else // чтение успешно
+					{
+						SocketInfo->BytesRECV = RecvBytes;
+
+						// Если получено 0 байтов, значит клиент
+						// закрыл соединение.
+
+						if (RecvBytes == 0)
+						{
+							FreeSocketInformation(i, pLB);
+							continue;
+						}
+
+						RecvSocket++;
+
+						// Распечатка сообщения, если нужно
+
+						if (bPrint)
+						{
+							unsigned l = sizeof(Str) - 1;
+							if (l > RecvBytes)
+								l = RecvBytes;
+							strncpy_s(Str, SocketInfo->Buffer, l);
+							Str[l] = 0;
+							pLB->AddString(Str);
+						}
+					}
+				}
+
+				// Если сокет попадает в множество WriteSet, 
+				// выполняем отправку данных.
+
+				if (RecvSocket >= CLIENT_NUMBER)
+				{
+					if (FD_ISSET(SocketInfo->Socket, &WriteSet))
+					{
+						Total--;
+
+						SocketInfo->DataBuf.buf =
+							SocketInfo->Buffer + SocketInfo->BytesSEND;
+						SocketInfo->DataBuf.len =
+							SocketInfo->BytesRECV - SocketInfo->BytesSEND;
+						//отправляем сообщения 1-го, 2-му, а 2-го 1-му
+						// создаем структуру для i+1 сокета SocketInfo2,	
+						LPSOCKET_INFORMATION SocketInf = SocketArray[i];
+
+						if (i == TotalSockets - 1)
+						{
+							SocketInf = SocketArray[0];
+						}
+						else
+						{
+							SocketInf = SocketArray[i + 1];
+						}
+						
+						// и отправляем его сообщение SocketInf->Buffer i-му
+
+						int ret;
+						ret = send(SocketInfo->Socket, SocketInf->Buffer, strlen(SocketInf->Buffer), 0);
+
+
+						if (ret == SOCKET_ERROR)
+						{
+							if (WSAGetLastError() != WSAEWOULDBLOCK)
+							{
+								sprintf_s(Str, sizeof(Str),
+									"WSASend() failed with error %d",
+									WSAGetLastError());
+								pLB->AddString(Str);
+
+								FreeSocketInformation(i, pLB);
+							}
+							continue;
+						}
+						else
+						{
+							/*SocketInfo->BytesSEND += SendBytes;
+
+							if (SocketInfo->BytesSEND ==
+								SocketInfo->BytesRECV)*/
+							{
+								SocketInfo->BytesSEND = 0;
+								SocketInfo->BytesRECV = 0;
+							}
+
+							SendSocket++;
+						}
+					}
+				}
+			}
+		}
+		if (SendSocket == CLIENT_NUMBER)
+		{
+			SendSocket = 0;
+			RecvSocket = 0;
+		}
+
+	}
+
+	return 0;
+}
